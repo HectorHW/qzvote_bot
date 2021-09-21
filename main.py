@@ -269,6 +269,13 @@ if __name__ == '__main__':
         if handle_vote(update, context):
             return
 
+        global YES_MARK, NO_MARK
+
+        if update.effective_message is not None \
+            and update.effective_message.text not in (YES_MARK, NO_MARK):
+            # do not reply to votes
+            context.bot.send_message(chat_id=update.effective_chat.id, text="ладно", reply_markup=make_keyboard())
+
         if update.channel_post is not None and update.channel_post.text is not None:
             print(f"{update.channel_post.sender_chat.title}: {update.channel_post.text}")
 
