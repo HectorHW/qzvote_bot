@@ -12,6 +12,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton,
 import json
 import sys
 
+from threading import Timer
+
 def load_config(filename):
     if not os.path.exists(filename):
         return None
@@ -117,7 +119,7 @@ if __name__ == '__main__':
             context.bot.send_message(chat_id=update.effective_chat.id, text=f"game {GAME_ID} in progress")
             return
 
-        GAME_ID = random.randint(1, 9999)
+        GAME_ID = random.randint(1000, 9999)
         PLAYERS.clear()
         context.bot.send_message(chat_id=update.effective_chat.id, text=str(GAME_ID))
 
@@ -138,6 +140,48 @@ if __name__ == '__main__':
         context.bot.send_message(chat_id=update.effective_chat.id, text="ok")
 
     dispatcher.add_handler(CommandHandler('stop', stop_handler))
+
+    VOTES = None
+
+    def vote_handler(update, context):
+        if not check_permissions(update):
+            return
+
+        global VOTES
+
+        if VOTES is not None:
+            context.bot.send_message(chat_id=update.effective_chat.id, text="there is vote in progress")
+            return
+
+        if GAME_ID is None:
+            context.bot.send_message(chat_id=update.effective_chat.id, text="you need to create a game")
+            return
+
+        VOTES = {}
+
+        result_id = update.effective_chat.id
+
+        def compute_results():
+            global VOTES
+            if VOTES is None:
+                msg = "got no votes"
+            else:
+                positive = 0
+                negative = 0
+                for k,v in VOTES.items():
+                    if v:
+                        positive += 1
+                    else:
+                        negative += 1
+                msg = f"positive: {positive}, negative: {negative}"
+            context.bot.send_message(result_id, msg)
+            VOTES = None
+
+        t = Timer(15.0, compute_results)
+        t.start()
+        context.bot.send_message(result_id, "vote started")
+
+    dispatcher.add_handler(CommandHandler('vote', vote_handler))
 
     YES_MARK = "✅"
     NO_MARK = "❌"
@@ -167,7 +211,7 @@ if __name__ == '__main__':
 
     def handle_vote(update, context) -> bool:
         global GAME_ID
-        if GAME_ID is None:
+        if GAME_ID is None or VOTES is None:
             return False
 
         if update.effective_message is None or update.effective_message.text is None:
@@ -178,7 +222,7 @@ if __name__ == '__main__':
             return False
         user_id = user_id.id
 
-        if user_id not in PLAYERS or GAME_ID is None:
+        if user_id not in PLAYERS:
             return False
 
         global YES_MARK, NO_MARK
@@ -188,6 +232,10 @@ if __name__ == '__main__':
         vote = mapping.get(update.effective_message.text)
 
         print(f"{user_id} voted {vote}")
+
+        if VOTES is not None:
+            VOTES[user_id] = vote
+
         return True
 
 
