@@ -108,6 +108,20 @@ if __name__ == '__main__':
     join_handler = CommandHandler('join', join_handler)
     dispatcher.add_handler(join_handler)
 
+    def extract_number_argument(s:str):
+        parts = s.split(' ', 1)
+        print(parts)
+        try:
+            number_str = parts[1]
+            number = int(number_str)
+            return number
+        except ValueError:
+            pass
+        except IndexError:
+            pass
+
+        return None
+
 
     def create_handler(update, context):
         if not check_permissions(update):
@@ -161,6 +175,14 @@ if __name__ == '__main__':
 
         result_id = update.effective_chat.id
 
+        msg = update.effective_message.text
+
+        maybe_argument = extract_number_argument(msg)
+        if maybe_argument is None:
+            argument = 15
+        else:
+            argument = maybe_argument
+
         def compute_results():
             global VOTES
             if VOTES is None:
@@ -177,9 +199,9 @@ if __name__ == '__main__':
             context.bot.send_message(result_id, msg)
             VOTES = None
 
-        t = Timer(15.0, compute_results)
+        t = Timer(argument, compute_results)
         t.start()
-        context.bot.send_message(result_id, "vote started")
+        context.bot.send_message(result_id, f"vote started for {argument} second(s)")
 
     dispatcher.add_handler(CommandHandler('vote', vote_handler))
 
