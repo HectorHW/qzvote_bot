@@ -257,6 +257,7 @@ if __name__ == '__main__':
 
         if VOTES is not None:
             VOTES[user_id] = vote
+            context.bot.send_message(chat_id=update.effective_chat.id, text="ваш голос учтён", reply_markup=make_keyboard())
 
         return True
 
