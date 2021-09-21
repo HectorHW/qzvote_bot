@@ -14,6 +14,67 @@ import sys
 
 from threading import Timer
 
+
+class GameState:
+    def __init__(self):
+        self.players = set()
+        self.votes = None
+        self.game_id = None
+
+    def add_player(self, player_id):
+        if not self.is_playing():
+            return
+        self.players.add(player_id)
+
+    def create_game(self):
+
+        self.game_id = random.randint(1000, 9999)
+        self.players.clear()
+        self.votes = None
+
+    def stop_game(self):
+        self.game_id = None
+        self.players.clear()
+        self.votes = None
+
+    def is_playing(self):
+        return self.game_id is not None
+
+    def is_voting(self):
+        return self.votes is not None
+
+    def is_player(self, player_id):
+        return self.is_playing() and player_id in self.players
+
+    def cast_vote(self, player_id, vote:bool):
+        if not self.is_playing() or not self.is_voting():
+            return
+        if not self.is_player(player_id):
+            return
+        self.votes[player_id] = vote
+
+    def finish_voting(self):
+        if not self.is_voting():
+            return "we are not voting"
+        else:
+            positive = 0
+            negative = 0
+            for k,v in self.votes.items():
+                if v:
+                    positive += 1
+                else:
+                    negative += 1
+            msg = f"positive: {positive}, negative: {negative}"
+            self.votes = None
+            return msg
+
+    def start_voting(self):
+        self.votes = {}
+
+    def get_id(self):
+        return self.game_id
+
+
 def load_config(filename):
     if not os.path.exists(filename):
         return None
@@ -70,12 +131,10 @@ if __name__ == '__main__':
     start_handler = CommandHandler('start', start)
     dispatcher.add_handler(start_handler)
 
-    GAME_ID = None
-    PLAYERS = set()
+    game_state = GameState()
 
     def join_handler(update, context):
-        global GAME_ID
-        if GAME_ID is None:
+        if not game_state.is_playing():
             return
 
         if update.effective_message is None or update.effective_message.text is None:
@@ -96,10 +155,10 @@ if __name__ == '__main__':
             return
         user_id = user_id.id
 
-        if id!=GAME_ID or user_id in PLAYERS:
+        if id!=game_state.get_id() or game_state.is_player(user_id):
             return
 
-        PLAYERS.add(user_id)
+        game_state.add_player(user_id)
 
         context.bot.send_message(chat_id=update.effective_chat.id, text="ok", reply_markup=make_keyboard())
 
@@ -127,15 +186,12 @@ if __name__ == '__main__':
         if not check_permissions(update):
             return
 
-        global GAME_ID
-
-        if GAME_ID is not None:
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"game {GAME_ID} in progress")
+        if game_state.is_playing():
+            context.bot.send_message(chat_id=update.effective_chat.id, text=f"game {game_state.get_id()} in progress")
             return
 
-        GAME_ID = random.randint(1000, 9999)
-        PLAYERS.clear()
-        context.bot.send_message(chat_id=update.effective_chat.id, text=str(GAME_ID))
+        game_state.create_game()
+        context.bot.send_message(chat_id=update.effective_chat.id, text=str(game_state.get_id()))
 
     create_handler = CommandHandler('create', create_handler)
     dispatcher.add_handler(create_handler)
@@ -143,35 +199,29 @@ if __name__ == '__main__':
     def stop_handler(update, context):
         if not check_permissions(update):
             return
-        global GAME_ID
-        if GAME_ID is None:
+
+        if not game_state.is_playing():
             context.bot.send_message(chat_id=update.effective_chat.id, text="nothing to stop")
             return
 
-        GAME_ID = None
-        global PLAYERS
-        PLAYERS.clear()
+        game_state.stop_game()
         context.bot.send_message(chat_id=update.effective_chat.id, text="ok")
 
     dispatcher.add_handler(CommandHandler('stop', stop_handler))
 
-    VOTES = None
 
     def vote_handler(update, context):
         if not check_permissions(update):
             return
 
-        global VOTES
 
-        if VOTES is not None:
+        if game_state.is_voting():
             context.bot.send_message(chat_id=update.effective_chat.id, text="there is vote in progress")
             return
 
-        if GAME_ID is None:
+        if not game_state.is_playing():
             context.bot.send_message(chat_id=update.effective_chat.id, text="you need to create a game")
             return
-
-        VOTES = {}
 
         result_id = update.effective_chat.id
 
@@ -183,21 +233,11 @@ if __name__ == '__main__':
         else:
             argument = maybe_argument
 
+        game_state.start_voting()
+
         def compute_results():
-            global VOTES
-            if VOTES is None:
-                msg = "got no votes"
-            else:
-                positive = 0
-                negative = 0
-                for k,v in VOTES.items():
-                    if v:
-                        positive += 1
-                    else:
-                        negative += 1
-                msg = f"positive: {positive}, negative: {negative}"
+            msg = game_state.finish_voting()
             context.bot.send_message(result_id, msg)
-            VOTES = None
 
         t = Timer(argument, compute_results)
         t.start()
@@ -232,8 +272,8 @@ if __name__ == '__main__':
         print("no")
 
     def handle_vote(update, context) -> bool:
-        global GAME_ID
-        if GAME_ID is None or VOTES is None:
+
+        if not game_state.is_voting() or not game_state.is_playing():
             return False
 
         if update.effective_message is None or update.effective_message.text is None:
@@ -244,7 +284,7 @@ if __name__ == '__main__':
             return False
         user_id = user_id.id
 
-        if user_id not in PLAYERS:
+        if not game_state.is_player(user_id):
             return False
 
         global YES_MARK, NO_MARK
@@ -255,9 +295,9 @@ if __name__ == '__main__':
 
         print(f"{user_id} voted {vote}")
 
-        if VOTES is not None:
-            VOTES[user_id] = vote
-            context.bot.send_message(chat_id=update.effective_chat.id, text="ваш голос учтён", reply_markup=make_keyboard())
+        game_state.cast_vote(user_id, vote)
+
+        context.bot.send_message(chat_id=update.effective_chat.id, text="ваш голос учтён", reply_markup=make_keyboard())
 
         return True
 
