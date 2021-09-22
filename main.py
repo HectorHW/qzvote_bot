@@ -217,6 +217,7 @@ if __name__ == '__main__':
         game_state.add_player(user_id)
 
         context.bot.send_message(chat_id=update.effective_chat.id, text="ok", reply_markup=make_keyboard())
+        send_to_admin(f"{get_pretty_user(update.effective_message.from_user)} joined")
 
 
 
