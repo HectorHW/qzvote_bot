@@ -2,6 +2,7 @@ import os
 import random
 import string
 import warnings
+from typing import List, Union
 
 import telegram
 from telegram.ext import Updater, Dispatcher, CallbackContext
@@ -20,6 +21,9 @@ class GameState:
         self.players = set()
         self.votes = None
         self.game_id = None
+        self.question_entries: Union[List, None] = None
+        self.question_callback = None
+        self.question_callback_cut = False
 
     def add_player(self, player_id):
         if not self.is_playing():
@@ -31,17 +35,22 @@ class GameState:
         self.game_id = random.randint(1000, 9999)
         self.players.clear()
         self.votes = None
+        self.question_entries = None
 
     def stop_game(self):
         self.game_id = None
         self.players.clear()
         self.votes = None
+        self.question_entries = None
 
     def is_playing(self):
         return self.game_id is not None
 
     def is_voting(self):
         return self.votes is not None
+
+    def is_questioning(self):
+        return self.question_entries is not None
 
     def is_player(self, player_id):
         return self.is_playing() and player_id in self.players
@@ -74,6 +83,46 @@ class GameState:
     def get_id(self):
         return self.game_id
 
+    def start_questioning(self, timed_callback:Timer):
+        self.question_entries = []
+        self.question_callback = timed_callback
+        self.question_callback_cut = False
+        self.question_callback.start()
+
+    def finish_questioning(self):
+        if self.question_entries is None or not self.question_entries:
+            msg =  "got no presses"
+        else:
+
+            first_message = sorted(self.question_entries, key=lambda item: item.date)[0]
+            user = first_message.from_user
+            msg = f"{get_pretty_user(user)} was first"
+
+        self.question_entries = None
+        self.question_callback = None
+        self.question_callback_cut = False
+        return msg
+
+    def add_answer(self, answer:telegram.Message):
+        if not self.is_questioning() or not self.is_player(answer.from_user.id):
+            return
+        self.question_entries.append(answer)
+        if not self.question_callback_cut:
+            self.question_callback_cut = True
+            self.question_callback.cancel()
+            function = self.question_callback.function
+            self.question_callback = Timer(0.5, function)
+            self.question_callback.start()
+
+def get_pretty_user(user:telegram.User) -> str:
+    if user.last_name is not None:
+        msg = f"{user.first_name} {user.last_name}"
+    else:
+        msg = f"{user.first_name}"
+
+    if user.username is not None:
+        msg = f"{msg} ({user.username})"
+    return msg
 
 def load_config(filename):
     if not os.path.exists(filename):
@@ -214,13 +263,16 @@ if __name__ == '__main__':
         if not check_permissions(update):
             return
 
+        if not game_state.is_playing():
+            context.bot.send_message(chat_id=update.effective_chat.id, text="you need to create a game")
+            return
 
         if game_state.is_voting():
             context.bot.send_message(chat_id=update.effective_chat.id, text="there is vote in progress")
             return
 
-        if not game_state.is_playing():
-            context.bot.send_message(chat_id=update.effective_chat.id, text="you need to create a game")
+        if game_state.is_questioning():
+            context.bot.send_message(chat_id=update.effective_chat.id, text="there is a question in progress")
             return
 
         result_id = update.effective_chat.id
@@ -245,6 +297,44 @@ if __name__ == '__main__':
 
     dispatcher.add_handler(CommandHandler('vote', vote_handler))
 
+
+    def question_handler(update, context):
+        if not check_permissions(update):
+            return
+
+        if not game_state.is_playing():
+            context.bot.send_message(chat_id=update.effective_chat.id, text="you need to create a game")
+            return
+
+        if game_state.is_voting():
+            context.bot.send_message(chat_id=update.effective_chat.id, text="there is vote in progress")
+            return
+        if game_state.is_questioning():
+            context.bot.send_message(chat_id=update.effective_chat.id, text="there is already a question in progress")
+            return
+
+        result_id = update.effective_chat.id
+
+        msg = update.effective_message.text
+
+        maybe_argument = extract_number_argument(msg)
+        if maybe_argument is None:
+            argument = 15
+        else:
+            argument = maybe_argument
+
+        def compute_results():
+            msg = game_state.finish_questioning()
+            context.bot.send_message(result_id, msg)
+
+        t = Timer(argument, compute_results)
+
+        game_state.start_questioning(t)
+        context.bot.send_message(result_id, f"question started for {argument} second(s)")
+
+    dispatcher.add_handler(CommandHandler('question', question_handler))
+
+
     YES_MARK = "✅"
     NO_MARK = "❌"
 
@@ -255,25 +345,12 @@ if __name__ == '__main__':
                     KeyboardButton(NO_MARK), ]]
         return ReplyKeyboardMarkup(keyboard)
 
-    def yes_handler(bot, update):
-        query = update.callback_query
-
-        # CallbackQueries need to be answered, even if no notification to the user is needed
-        # Some clients may have trouble otherwise. See https://core.telegram.org/bots/api#callbackquery
-        query.answer()
-        print("yes")
-
-    def no_handler(bot, update):
-        query = update.callback_query
-
-        # CallbackQueries need to be answered, even if no notification to the user is needed
-        # Some clients may have trouble otherwise. See https://core.telegram.org/bots/api#callbackquery
-        query.answer()
-        print("no")
-
     def handle_vote(update, context) -> bool:
 
-        if not game_state.is_voting() or not game_state.is_playing():
+        if not game_state.is_playing():
+            return False
+
+        if not game_state.is_voting() and not game_state.is_questioning():
             return False
 
         if update.effective_message is None or update.effective_message.text is None:
@@ -295,9 +372,12 @@ if __name__ == '__main__':
 
         print(f"{user_id} voted {vote}")
 
-        game_state.cast_vote(user_id, vote)
+        if game_state.is_voting():
+            game_state.cast_vote(user_id, vote)
 
-        context.bot.send_message(chat_id=update.effective_chat.id, text="ваш голос учтён", reply_markup=make_keyboard())
+            context.bot.send_message(chat_id=update.effective_chat.id, text="ваш голос учтён", reply_markup=make_keyboard())
+        else:
+            game_state.add_answer(update.effective_message)
 
         return True
 
