@@ -226,7 +226,6 @@ if __name__ == '__main__':
 
     def extract_number_argument(s:str):
         parts = s.split(' ', 1)
-        print(parts)
         try:
             number_str = parts[1]
             number = int(number_str)
