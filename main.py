@@ -5,10 +5,10 @@ import warnings
 from typing import List, Union
 
 import telegram
-from telegram.ext import Updater, Dispatcher, CallbackContext
+from telegram.ext import Updater, Dispatcher
 
-from telegram.ext import CommandHandler, CallbackQueryHandler
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+
+from telegram import KeyboardButton, ReplyKeyboardMarkup
 
 import json
 import sys
@@ -182,6 +182,13 @@ if __name__ == '__main__':
 
     game_state = GameState()
 
+    def send_to_admin(msg:str):
+        if config["chat_id"] is not None:
+            chat_id = config["chat_id"]
+            updater.bot.send_message(chat_id=chat_id, text=msg)
+            return True
+        return False
+
     def join_handler(update, context):
         if not game_state.is_playing():
             return
@@ -236,11 +243,11 @@ if __name__ == '__main__':
             return
 
         if game_state.is_playing():
-            context.bot.send_message(chat_id=update.effective_chat.id, text=f"game {game_state.get_id()} in progress")
+            send_to_admin(f"game {game_state.get_id()} in progress")
             return
 
         game_state.create_game()
-        context.bot.send_message(chat_id=update.effective_chat.id, text=str(game_state.get_id()))
+        send_to_admin(str(game_state.get_id()))
 
     create_handler = CommandHandler('create', create_handler)
     dispatcher.add_handler(create_handler)
@@ -250,11 +257,11 @@ if __name__ == '__main__':
             return
 
         if not game_state.is_playing():
-            context.bot.send_message(chat_id=update.effective_chat.id, text="nothing to stop")
+            send_to_admin("nothing to stop")
             return
 
         game_state.stop_game()
-        context.bot.send_message(chat_id=update.effective_chat.id, text="ok")
+        send_to_admin("ok")
 
     dispatcher.add_handler(CommandHandler('stop', stop_handler))
 
@@ -264,15 +271,15 @@ if __name__ == '__main__':
             return
 
         if not game_state.is_playing():
-            context.bot.send_message(chat_id=update.effective_chat.id, text="you need to create a game")
+            send_to_admin("you need to create a game")
             return
 
         if game_state.is_voting():
-            context.bot.send_message(chat_id=update.effective_chat.id, text="there is vote in progress")
+            send_to_admin("there is vote in progress")
             return
 
         if game_state.is_questioning():
-            context.bot.send_message(chat_id=update.effective_chat.id, text="there is a question in progress")
+            send_to_admin("there is a question in progress")
             return
 
         result_id = update.effective_chat.id
@@ -293,7 +300,7 @@ if __name__ == '__main__':
 
         t = Timer(argument, compute_results)
         t.start()
-        context.bot.send_message(result_id, f"vote started for {argument} second(s)")
+        send_to_admin(f"vote started for {argument} second(s)")
 
     dispatcher.add_handler(CommandHandler('vote', vote_handler))
 
@@ -303,14 +310,14 @@ if __name__ == '__main__':
             return
 
         if not game_state.is_playing():
-            context.bot.send_message(chat_id=update.effective_chat.id, text="you need to create a game")
+            send_to_admin("you need to create a game")
             return
 
         if game_state.is_voting():
-            context.bot.send_message(chat_id=update.effective_chat.id, text="there is vote in progress")
+            send_to_admin("there is vote in progress")
             return
         if game_state.is_questioning():
-            context.bot.send_message(chat_id=update.effective_chat.id, text="there is already a question in progress")
+            send_to_admin("there is already a question in progress")
             return
 
         result_id = update.effective_chat.id
@@ -330,7 +337,7 @@ if __name__ == '__main__':
         t = Timer(argument, compute_results)
 
         game_state.start_questioning(t)
-        context.bot.send_message(result_id, f"question started for {argument} second(s)")
+        send_to_admin(f"question started for {argument} second(s)")
 
     dispatcher.add_handler(CommandHandler('question', question_handler))
 
